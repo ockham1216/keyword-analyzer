@@ -227,9 +227,9 @@ def calculate_combined_index(sc_value, bti_df):
     # BTI 지수의 최근 30일 평균을 사용
     avg_bti = bti_df['bti'].tail(30).mean()
     
-    # 두 지수를 곱하여 통합 확산 잠재력 지수 계산
-    # BTI가 0~100, SC가 0~10이므로 BTI를 10으로 나눠 스케일 맞춤
-    combined_index = sc_value * (avg_bti / 10.0)
+    # 두 지수를 0-100 스케일로 정규화한 후 평균을 내는 새로운 공식
+    # BTI는 0-100 스케일이므로 그대로 사용하고, SC는 0-10이므로 10을 곱해 0-100 스케일로 맞춤
+    combined_index = (sc_value * 10.0 + avg_bti) / 2.0
     
     return combined_index
 
@@ -246,7 +246,7 @@ with st.sidebar:
     
     # 기준 키워드 (네이버 BTI용)
     st.subheader("네이버 BTI 기준 키워드")
-    ref_keywords_str = st.text_input("콤마(,)로 구분하여 입력", "뉴스,날씨,유튜브")
+    ref_keywords_str = st.text_input("콤마(,)로 구분하여 입력", "뉴스,날씨")
     reference_keywords = [kw.strip() for kw in ref_keywords_str.split(',') if kw.strip()]
     
     run_button = st.button("🚀 분석 시작")
@@ -285,12 +285,12 @@ if run_button and keyword:
                 
                 sc = result['spread_coefficient']
                 sc_guide = ""
-                if sc < 2.0: sc_guide = "미미한 영향 (여론 변동 없음)"
-                elif sc < 4.0: sc_guide = "주목 요망 (이슈화 가능성)"
-                elif sc < 6.0: sc_guide = "유의미한 영향 (공론화 시작)"
-                elif sc < 8.0: sc_guide = "심각한 영향 (여론 악화)"
-                elif sc < 10.0: sc_guide = "위기 수준 (국정 운영 영향)"
-                else: sc_guide = "최고 위기 수준 (선거 판도 변경 가능성)"
+                if sc < 2.0: sc_guide = "미미한 영향"
+                elif sc < 4.0: sc_guide = "주목 요망"
+                elif sc < 6.0: sc_guide = "유의미한 영향"
+                elif sc < 8.0: sc_guide = "심각한 영향"
+                elif sc < 10.0: sc_guide = "위기 수준"
+                else: sc_guide = "최고 위기 수준"
                 st.markdown(f"**해석**: {sc_guide}")
 
                 st.markdown(f"**추천 해시태그**: `{'`, `'.join(result['common_keywords'])}`")
