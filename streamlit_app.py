@@ -21,7 +21,7 @@ st.set_page_config(
 
 # --- 폰트 로드 (프로젝트 폴더에 'malgun.ttf'가 있어야 함) ---
 try:
-    font_path = 'malgun.ttf'
+    font_path = 'font/malgun.ttf'
     fm.fontManager.addfont(font_path)
     font_name = fm.FontProperties(fname=font_path).get_name()
     plt.rcParams['font.family'] = font_name
