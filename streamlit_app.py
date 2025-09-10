@@ -325,13 +325,12 @@ if st.session_state.logged_in:
                     
                     st.subheader("주요 시각화")
                     fig, ax = plt.subplots(figsize=(16, 6))
-                    metrics = ['총 조회수', '평균 조회수', '평균 가중 조회수']
+                    metrics = ['평균 조회수', '평균 가중 조회수']
                     values = [
-                        result['total_views'],
                         result['avg_views'],
                         result['avg_weighted_views']
                     ]
-                    colors = ['blue', 'green', 'orange']
+                    colors = ['green', 'orange']
                     ax.bar(metrics, values, color=colors)
                     ax.set_title('확산 지표 비교')
                     ax.set_ylabel('값')
@@ -430,6 +429,6 @@ else:
     if password_input:
         if password_input == PASSWORD:
             st.session_state.logged_in = True
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("비밀번호가 틀렸습니다.")
