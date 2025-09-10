@@ -425,6 +425,8 @@ if st.session_state.logged_in:
             st.warning("API 키를 올바르게 설정했는지 확인해 주세요.")
 
 else:
+    # --- 로그인 전, 비밀번호 입력 UI ---
+    st.header("🔑 통합 키워드 분석기 로그인")
     password_input = st.text_input("비밀번호를 입력하세요:", type="password")
     if password_input:
         if password_input == PASSWORD:
