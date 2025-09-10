@@ -246,7 +246,6 @@ def create_wordcloud(text, font_path):
     st.pyplot(fig)
 
 # --- 사용자 인증 ---
-st.header("🔑 통합 키워드 분석기 로그인")
 PASSWORD = st.secrets["APP_PASSWORD"]
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
