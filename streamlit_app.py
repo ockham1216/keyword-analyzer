@@ -11,6 +11,8 @@ import time
 import requests
 import json
 import numpy as np
+from wordcloud import WordCloud
+
 
 # Streamlit 앱 설정
 st.set_page_config(
@@ -19,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 폰트 로드 (프로젝트 폴더에 'malgun.ttf'가 있어야 함) ---
+# --- 폰트 로드 (프로젝트 폴더에 'font/malgun.ttf'가 있어야 함) ---
 try:
     font_path = 'font/malgun.ttf'
     fm.fontManager.addfont(font_path)
@@ -28,7 +30,7 @@ try:
     plt.rcParams['axes.unicode_minus'] = False
 except Exception as e:
     st.warning(f"폰트 설정 오류: {e}")
-    st.info("프로젝트 폴더에 'malgun.ttf' 파일을 추가해주세요.")
+    st.info("프로젝트 폴더에 'font' 폴더를 만들고 'malgun.ttf' 파일을 추가해주세요.")
 
 
 # --- 1. YouTube 분석 클래스 (기존 코드와 동일) ---
@@ -220,179 +222,214 @@ def calculate_absolute_index(main_data, ref_data_list):
     return (main_data['ratio'] / ref_max) * 100
 
 def calculate_bti(naver_abs_index):
-    # 절대량 지수를 BTI 지수로 사용 (0~100 스케일)
     return naver_abs_index
 
 def calculate_combined_index(sc_value, bti_df):
-    # BTI 지수의 최근 30일 평균을 사용
-    avg_bti = bti_df['bti'].tail(30).mean()
-    
-    # 두 지수를 0-100 스케일로 정규화한 후 평균을 내는 새로운 공식
-    # BTI는 0-100 스케일이므로 그대로 사용하고, SC는 0-10이므로 10을 곱해 0-100 스케일로 맞춤
+    avg_bti = bti_df['bti'].tail(len(bti_df)).mean()
     combined_index = (sc_value * 10.0 + avg_bti) / 2.0
-    
     return combined_index
 
-# --- Streamlit UI 및 메인 로직 ---
-st.title("통합 키워드 확산 분석기")
-st.markdown("유튜브와 네이버 데이터를 활용하여 키워드의 확산력을 분석합니다.")
 
-# 사이드바
-with st.sidebar:
-    st.header("🔑 키워드 및 설정")
-    keyword = st.text_input("분석할 키워드", placeholder="검색어를 입력해주세요")
-    days_back = st.slider("분석 기간 (일)", 7, 365, 30)
-    max_results = st.slider("YouTube 분석 동영상 수", 10, 200, 100)
+# --- 워드 클라우드 생성 함수 ---
+def create_wordcloud(text, font_path):
+    wordcloud = WordCloud(
+        font_path=font_path,
+        background_color="white",
+        width=800,
+        height=400,
+        max_words=50
+    ).generate(text)
     
-    # 기준 키워드 (네이버 BTI용)
-    st.subheader("네이버 BTI 기준 키워드")
-    ref_keywords_str = st.text_input("콤마(,)로 구분하여 입력", "뉴스,날씨")
-    reference_keywords = [kw.strip() for kw in ref_keywords_str.split(',') if kw.strip()]
-    
-    run_button = st.button("🚀 분석 시작")
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.imshow(wordcloud, interpolation="bilinear")
+    ax.axis("off")
+    st.pyplot(fig)
 
-if run_button and keyword:
-    try:
-        # 탭 UI
-        tab1, tab2 = st.tabs(["📊 유튜브 확산 분석", "📈 네이버 BTI 분석"])
+# --- 사용자 인증 ---
+st.header("🔑 통합 키워드 분석기 로그인")
+PASSWORD = st.secrets["APP_PASSWORD"]
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
 
-        with tab1:
-            st.header("📊 유튜브 확산 분석 결과")
-            with st.spinner("YouTube 데이터를 불러오는 중..."):
-                youtube_analyzer = YouTubeSpreadAnalyzer(st.secrets["YOUTUBE_API_KEY"])
-                result, videos = youtube_analyzer.analyze_keyword_spread(
-                    keyword,
-                    days_back=days_back,
-                    max_results=max_results
-                )
-            
-            if "error" in result:
-                st.error(f"오류 발생: {result['error']}")
-            else:
-                st.subheader(f"'{result['keyword']}' 키워드 확산 분석 (최근 {result['days_back']}일 기준)")
-                st.metric("확산 계수 (SC)", f"{result['spread_coefficient']:.2f} / 10.00")
-                
-                with st.expander("확산 계수(SC) 공식 보기"):
-                    st.markdown(r"""
-                        $ SC_{coeff} = \frac{log_{10}(WAV) - 3}{log_{10}(5,000,000) - 3} \times 10 $
-                        <br>
-                        **WAV**: 가중 평균 조회수 (Weighted Average Views) = 일반 조회수 × (1 + 참여도)
-                        <br>
-                        **참여도**: (좋아요 + 댓글) / 조회수
-                        """, unsafe_allow_html=True)
-                
-                st.info(f"**총 조회수**: {result['total_views']:,}회 | **평균 조회수**: {result['avg_views']:,.1f}회 | **평균 가중 조회수**: {result['avg_weighted_views']:,.1f}회")
-                
-                sc = result['spread_coefficient']
-                sc_guide = ""
-                if sc < 2.0: sc_guide = "미미한 영향"
-                elif sc < 4.0: sc_guide = "주목 요망"
-                elif sc < 6.0: sc_guide = "유의미한 영향"
-                elif sc < 8.0: sc_guide = "심각한 영향"
-                elif sc < 10.0: sc_guide = "위기 수준"
-                else: sc_guide = "최고 위기 수준"
-                st.markdown(f"**해석**: {sc_guide}")
+if st.session_state.logged_in:
+    # --- Streamlit UI 및 메인 로직 ---
+    st.title("통합 키워드 확산 분석기")
+    st.markdown("유튜브와 네이버 데이터를 활용하여 키워드의 확산력을 분석합니다.")
 
-                st.markdown(f"**추천 해시태그**: `{'`, `'.join(result['common_keywords'])}`")
-                
-                st.subheader("상위 동영상 목록")
-                top_videos_df = pd.DataFrame(result['top_videos'])
-                top_videos_df['publishedAt'] = pd.to_datetime(top_videos_df['publishedAt']).dt.strftime('%Y-%m-%d')
-                top_videos_df = top_videos_df[['channelTitle', 'title', 'viewCount', 'likeCount', 'commentCount', 'publishedAt']]
-                st.dataframe(top_videos_df, use_container_width=True)
-                
-                st.subheader("주요 시각화")
-                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-                
-                df_videos = pd.DataFrame(videos).sort_values('viewCount', ascending=False)
-                ax1.bar(range(len(df_videos)), df_videos['viewCount'], color='skyblue')
-                ax1.set_title('비디오별 조회수 분포')
-                ax1.set_xlabel('비디오 순서 (조회수 기준)')
-                ax1.set_ylabel('조회수')
-                
-                metrics = ['총 조회수', '평균 조회수', '평균 가중 조회수']
-                values = [
-                    result['total_views'],
-                    result['avg_views'],
-                    result['avg_weighted_views']
-                ]
-                colors = ['blue', 'green', 'orange']
-                ax2.bar(metrics, values, color=colors)
-                ax2.set_title('확산 지표 비교')
-                ax2.set_ylabel('값')
-                ax2.ticklabel_format(style='plain', axis='y')
-                
-                plt.tight_layout()
-                st.pyplot(fig)
+    # 사이드바
+    with st.sidebar:
+        st.header("🔑 키워드 및 설정")
+        keyword = st.text_input("분석할 키워드", placeholder="검색어를 입력해주세요")
+        days_back = st.slider("분석 기간 (일)", 7, 365, 30)
+        max_results = st.slider("YouTube 분석 동영상 수", 10, 200, 100)
+        
+        st.subheader("네이버 BTI 기준 키워드")
+        ref_keywords_str = st.text_input("콤마(,)로 구분하여 입력", "뉴스,날씨")
+        reference_keywords = [kw.strip() for kw in ref_keywords_str.split(',') if kw.strip()]
+        
+        run_button = st.button("🚀 분석 시작")
 
-        with tab2:
-            st.header("📈 네이버 BTI 분석 결과")
-            with st.spinner("Naver 데이터를 불러오는 중..."):
-                end_date = datetime.now().strftime("%Y-%m-%d")
-                start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if run_button and keyword:
+        try:
+            tab1, tab2 = st.tabs(["📊 유튜브 확산 분석", "📈 네이버 BTI 분석"])
+
+            with tab1:
+                st.header("📊 유튜브 확산 분석 결과")
+                with st.spinner("YouTube 데이터를 불러오는 중..."):
+                    youtube_analyzer = YouTubeSpreadAnalyzer(st.secrets["YOUTUBE_API_KEY"])
+                    result, videos = youtube_analyzer.analyze_keyword_spread(
+                        keyword,
+                        days_back=days_back,
+                        max_results=max_results
+                    )
                 
-                keywords_dict = {"main": [keyword]}
-                for i, ref_kw in enumerate(reference_keywords):
-                    keywords_dict[f"ref_{i}"] = [ref_kw]
-                
-                try:
-                    naver_raw = get_naver_search_index(keywords_dict, start_date, end_date)
+                if "error" in result:
+                    st.error(f"오류 발생: {result['error']}")
+                else:
+                    st.subheader(f"'{result['keyword']}' 키워드 확산 분석 (최근 {result['days_back']}일 기준)")
+                    st.metric("확산 계수 (SC)", f"{result['spread_coefficient']:.2f} / 10.00")
                     
-                    results = {}
-                    for res in naver_raw['results']:
-                        group_name = res['title']
-                        df = pd.DataFrame(res['data'])
-                        df['date'] = pd.to_datetime(df['period'])
-                        results[group_name] = df
-                    
-                    main_df = results['main']
-                    ref_dfs = [df for key, df in results.items() if key.startswith('ref_')]
-                    
-                    main_df['abs_index'] = calculate_absolute_index(main_df, ref_dfs)
-                    main_df['bti'] = calculate_bti(main_df['abs_index'])
-                    
-                    st.subheader(f"'{keyword}' 키워드 BTI 분석 (최근 {days_back}일 기준)")
-                    st.metric("최근 30일 평균 BTI", f"{main_df['bti'].tail(30).mean():.2f}")
-                    
-                    with st.expander("BTI(Brand Trend Index) 공식 보기"):
+                    with st.expander("확산 계수(SC) 공식 보기"):
                         st.markdown(r"""
-                            $ BTI = \frac{검색량 \ 지수}{기준 \ 키워드들의 \ 최고 \ 지수} \times 100 $
+                            $ SC_{coeff} = \frac{log_{10}(WAV) - 3}{log_{10}(5,000,000) - 3} \times 10 $
                             <br>
-                            *BTI는 0-100 사이의 상대적 수치입니다.*
+                            **WAV**: 가중 평균 조회수 (Weighted Average Views) = 일반 조회수 × (1 + 참여도)
+                            <br>
+                            **참여도**: (좋아요 + 댓글) / 조회수
                             """, unsafe_allow_html=True)
+                    
+                    st.info(f"**총 조회수**: {result['total_views']:,}회 | **평균 조회수**: {result['avg_views']:,.1f}회 | **평균 가중 조회수**: {result['avg_weighted_views']:,.1f}회")
+                    
+                    # 새로운 지표: 평균 가중 조회수 / 평균 조회수 비율
+                    if result['avg_views'] > 0:
+                        engagement_ratio = result['avg_weighted_views'] / result['avg_views']
+                        st.metric("참여도 영향력 (가중/일반 조회수)", f"{engagement_ratio:.2f}")
+                    
+                    sc = result['spread_coefficient']
+                    sc_guide = ""
+                    if sc < 2.0: sc_guide = "미미한 영향"
+                    elif sc < 4.0: sc_guide = "주목 요망"
+                    elif sc < 6.0: sc_guide = "유의미한 영향"
+                    elif sc < 8.0: sc_guide = "심각한 영향"
+                    elif sc < 10.0: sc_guide = "위기 수준"
+                    else: sc_guide = "최고 위기 수준"
+                    st.markdown(f"**해석**: {sc_guide}")
 
-                    st.markdown("최근 7일 BTI 추이:")
-                    st.dataframe(main_df[['date', 'bti']].tail(7).set_index('date'), use_container_width=True)
-
-                    st.subheader("BTI 지수 추이 그래프")
+                    st.markdown(f"**추천 해시태그**: `{'`, `'.join(result['common_keywords'])}`")
                     
-                    fig, ax = plt.subplots(figsize=(12, 6))
-                    ax.plot(main_df['date'], main_df['bti'], 'b-', linewidth=2, label='BTI 지수')
+                    st.subheader("상위 동영상 목록")
+                    top_videos_df = pd.DataFrame(result['top_videos'])
+                    top_videos_df['publishedAt'] = pd.to_datetime(top_videos_df['publishedAt']).dt.strftime('%Y-%m-%d')
+                    top_videos_df = top_videos_df[['channelTitle', 'title', 'viewCount', 'likeCount', 'commentCount', 'publishedAt']]
+                    st.dataframe(top_videos_df, use_container_width=True)
                     
-                    main_df['30d_ma'] = main_df['bti'].rolling(window=30).mean()
-                    ax.plot(main_df['date'], main_df['30d_ma'], 'r--', linewidth=2, label='30일 이동평균')
-                    
-                    ax.set_title(f'BTI Index Trend: {keyword} (Naver)')
-                    ax.set_xlabel('날짜')
-                    ax.set_ylabel('BTI 지수')
-                    ax.grid(True, linestyle='--', alpha=0.7)
-                    ax.legend()
+                    st.subheader("주요 시각화")
+                    fig, ax = plt.subplots(figsize=(16, 6))
+                    metrics = ['총 조회수', '평균 조회수', '평균 가중 조회수']
+                    values = [
+                        result['total_views'],
+                        result['avg_views'],
+                        result['avg_weighted_views']
+                    ]
+                    colors = ['blue', 'green', 'orange']
+                    ax.bar(metrics, values, color=colors)
+                    ax.set_title('확산 지표 비교')
+                    ax.set_ylabel('값')
+                    ax.ticklabel_format(style='plain', axis='y')
+                    plt.tight_layout()
                     st.pyplot(fig)
                     
-                    # 새로운 통합 지표
-                    combined_index = calculate_combined_index(result['spread_coefficient'], main_df)
-                    st.subheader("🔮 통합 확산 잠재력 지수")
-                    st.metric("통합 확산 잠재력", f"{combined_index:.2f} / 100.00")
-                    st.info("YouTube 확산 계수(SC)와 네이버 BTI를 합산한 지수로, 키워드의 미래 확산 잠재력을 추산합니다.")
-
-                except requests.exceptions.HTTPError as err:
-                    if err.response.status_code == 401:
-                        st.error("네이버 API 인증 오류: Client ID 또는 Client Secret이 올바르지 않습니다.")
+                    # 워드클라우드
+                    all_titles_text = " ".join([video['title'] for video in videos])
+                    st.subheader("💬 영상 제목 워드 클라우드")
+                    if all_titles_text:
+                        create_wordcloud(all_titles_text, font_path)
                     else:
-                        st.error(f"네이버 API 호출 오류: {err}")
-                except Exception as e:
-                    st.error(f"데이터 처리 중 오류 발생: {e}")
+                        st.info("워드 클라우드를 생성할 제목이 없습니다.")
+
+
+            with tab2:
+                st.header("📈 네이버 BTI 분석 결과")
+                with st.spinner("Naver 데이터를 불러오는 중..."):
+                    end_date = datetime.now().strftime("%Y-%m-%d")
+                    start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+                    
+                    keywords_dict = {"main": [keyword]}
+                    for i, ref_kw in enumerate(reference_keywords):
+                        keywords_dict[f"ref_{i}"] = [ref_kw]
+                    
+                    try:
+                        naver_raw = get_naver_search_index(keywords_dict, start_date, end_date)
+                        
+                        results = {}
+                        for res in naver_raw['results']:
+                            group_name = res['title']
+                            df = pd.DataFrame(res['data'])
+                            df['date'] = pd.to_datetime(df['period'])
+                            results[group_name] = df
+                        
+                        main_df = results['main']
+                        ref_dfs = [df for key, df in results.items() if key.startswith('ref_')]
+                        
+                        main_df['abs_index'] = calculate_absolute_index(main_df, ref_dfs)
+                        main_df['bti'] = calculate_bti(main_df['abs_index'])
+                        
+                        st.subheader(f"'{keyword}' 키워드 BTI 분석 (최근 {days_back}일 기준)")
+                        st.metric(f"최근 {days_back}일 평균 BTI", f"{main_df['bti'].tail(days_back).mean():.2f}")
+                        
+                        with st.expander("BTI(Brand Trend Index) 공식 보기"):
+                            st.markdown(r"""
+                                $ BTI = \frac{검색량 \ 지수}{기준 \ 키워드들의 \ 최고 \ 지수} \times 100 $
+                                <br>
+                                *BTI는 0-100 사이의 상대적 수치입니다.*
+                                """, unsafe_allow_html=True)
+
+                        st.markdown(f"최근 {days_back}일 BTI 추이:")
+                        st.dataframe(main_df[['date', 'bti']].tail(days_back).set_index('date'), use_container_width=True)
+
+                        st.subheader("BTI 지수 추이 그래프")
+                        
+                        fig, ax = plt.subplots(figsize=(12, 6))
+                        ax.plot(main_df['date'], main_df['bti'], 'b-', linewidth=2, label='BTI 지수')
+                        
+                        main_df['30d_ma'] = main_df['bti'].rolling(window=30).mean()
+                        ax.plot(main_df['date'], main_df['30d_ma'], 'r--', linewidth=2, label='30일 이동평균')
+                        
+                        ax.set_title(f'BTI Index Trend: {keyword} (Naver)')
+                        ax.set_xlabel('날짜')
+                        ax.set_ylabel('BTI 지수')
+                        ax.grid(True, linestyle='--', alpha=0.7)
+                        ax.legend()
+                        st.pyplot(fig)
+                        
+                        combined_index = calculate_combined_index(result['spread_coefficient'], main_df)
+                        st.subheader("🔮 통합 확산 잠재력 지수")
+                        with st.expander("통합 확산 잠재력 지수 공식 보기"):
+                            st.markdown(r"""
+                                $ 통합 \ 지수 = \frac{(SC \times 10) + BTI}{2} $
+                                <br>
+                                *SC(0-10)와 BTI(0-100)를 0-100 스케일로 맞춰 평균을 낸 수치입니다.*
+                                """, unsafe_allow_html=True)
+                        st.metric("통합 확산 잠재력", f"{combined_index:.2f} / 100.00")
+                        st.info("YouTube 확산 계수(SC)와 네이버 BTI를 합산한 지수로, 키워드의 미래 확산 잠재력을 추산합니다.")
+
+                    except requests.exceptions.HTTPError as err:
+                        if err.response.status_code == 401:
+                            st.error("네이버 API 인증 오류: Client ID 또는 Client Secret이 올바르지 않습니다.")
+                        else:
+                            st.error(f"네이버 API 호출 오류: {err}")
+                    except Exception as e:
+                        st.error(f"데이터 처리 중 오류 발생: {e}")
             
-    except Exception as e:
-        st.error(f"분석 중 예상치 못한 오류가 발생했습니다: {e}")
-        st.warning("API 키를 올바르게 설정했는지 확인해 주세요.")
+        except Exception as e:
+            st.error(f"분석 중 예상치 못한 오류가 발생했습니다: {e}")
+            st.warning("API 키를 올바르게 설정했는지 확인해 주세요.")
+
+else:
+    password_input = st.text_input("비밀번호를 입력하세요:", type="password")
+    if password_input:
+        if password_input == PASSWORD:
+            st.session_state.logged_in = True
+            st.experimental_rerun()
+        else:
+            st.error("비밀번호가 틀렸습니다.")
