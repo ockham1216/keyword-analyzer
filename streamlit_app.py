@@ -110,29 +110,6 @@ class YouTubeSpreadAnalyzer:
         
         return videos
     
-    def get_video_comments(self, video_ids, max_results_per_video=30):
-        """가장 조회수가 높은 영상들의 댓글을 가져옴 (쿼터 최소화)"""
-        all_comments_text = ""
-        for video_id in video_ids:
-            try:
-                comment_response = self.youtube.commentThreads().list(
-                    part="snippet",
-                    videoId=video_id,
-                    maxResults=max_results_per_video,
-                    order="relevance"
-                ).execute()
-                
-                for item in comment_response['items']:
-                    comment_info = item['snippet']['topLevelComment']['snippet']
-                    # 줄바꿈 태그 제거 후 텍스트 추가
-                    comment_text = re.sub(r'<br\s*/>', ' ', comment_info['textDisplay'])
-                    all_comments_text += comment_text + " "
-            except Exception as e:
-                # 댓글이 비활성화된 영상이 있을 수 있음
-                continue
-                
-        return all_comments_text
-
     def get_video_comments_with_likes(self, video_ids, max_results_per_video=30):
         """댓글을 가져와 좋아요 순으로 정렬하여 리스트 반환"""
         all_comments = []
@@ -377,7 +354,8 @@ if st.session_state.logged_in:
                     top_videos_df = top_videos_df[['channelTitle', 'title', 'viewCount', 'likeCount', 'commentCount', 'publishedAt']]
                     st.dataframe(top_videos_df, use_container_width=True)
 
-                    st.subheader("👍 민심 파악: 좋아요 순 최상위 댓글")
+                    st.subheader("👍 좋아요 순 최상위 댓글")
+                    st.info("조회수 상위 10개 영상의 댓글을 가져와 좋아요 순으로 정렬한 결과입니다.")
                     top_video_ids = [v['id'] for v in result['top_videos']]
                     all_comments_list = youtube_analyzer.get_video_comments_with_likes(top_video_ids)
 
@@ -402,11 +380,13 @@ if st.session_state.logged_in:
                     
                     with wordcloud_tab2:
                         st.subheader("🗣️ 영상 댓글 워드 클라우드")
-                        st.info("워드 클라우드는 조회수 상위 10개 영상의 최신 댓글들을 기반으로 생성되었습니다.")
-                        top_video_ids = [v['id'] for v in result['top_videos']]
-                        all_comments_text = youtube_analyzer.get_video_comments(top_video_ids, max_results_per_video=100)
-                        if all_comments_text:
-                            create_wordcloud(all_comments_text, font_path)
+                        st.info("워드 클라우드는 좋아요 순으로 정렬된 댓글들을 기반으로 생성되었습니다.")
+                        if all_comments_list:
+                            all_comments_text_for_wc = " ".join([comment['text'] for comment in all_comments_list])
+                            if all_comments_text_for_wc:
+                                create_wordcloud(all_comments_text_for_wc, font_path)
+                            else:
+                                st.info("워드 클라우드를 생성할 댓글이 없습니다.")
                         else:
                             st.info("워드 클라우드를 생성할 댓글이 없습니다.")
 
@@ -447,7 +427,7 @@ if st.session_state.logged_in:
                                 *BTI는 0-100 사이의 상대적 수치입니다.*
                                 """, unsafe_allow_html=True)
 
-                        st.markdown(f"최근 BTI 추이:")
+                        st.markdown("최근 BTI 추이:")
                         st.dataframe(main_df[['date', 'bti']].tail(days_back).set_index('date'), use_container_width=True)
 
                         st.subheader("BTI 지수 추이 그래프")
@@ -482,6 +462,7 @@ if st.session_state.logged_in:
             st.warning("API 키를 올바르게 설정했는지 확인해 주세요.")
 
 else:
+    st.header("🔑 통합 키워드 분석기 로그인")
     password_input = st.text_input("비밀번호를 입력하세요:", type="password")
     if password_input:
         if password_input == PASSWORD:
