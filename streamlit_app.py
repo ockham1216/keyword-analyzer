@@ -110,9 +110,9 @@ class YouTubeSpreadAnalyzer:
         
         return videos
     
-    def get_video_comments(self, video_ids, max_results_per_video=100):
+    def get_video_comments(self, video_ids, max_results_per_video=30):
         """가장 조회수가 높은 영상들의 댓글을 가져옴 (쿼터 최소화)"""
-        all_comments_text = ""
+        all_comments = []
         for video_id in video_ids:
             try:
                 comment_response = self.youtube.commentThreads().list(
@@ -123,14 +123,18 @@ class YouTubeSpreadAnalyzer:
                 ).execute()
                 
                 for item in comment_response['items']:
-                    comment = item['snippet']['topLevelComment']['snippet']['textDisplay']
-                    all_comments_text += comment + " "
+                    comment_info = item['snippet']['topLevelComment']['snippet']
+                    comment_text = re.sub(r'<br\s*/>', ' ', comment_info['textDisplay']) # <br> 태그 제거
+                    
+                    all_comments.append({
+                        'text': comment_text,
+                        'likeCount': comment_info['likeCount']
+                    })
             except Exception as e:
                 # 댓글이 비활성화된 영상이 있을 수 있음
                 continue
                 
-        return all_comments_text
-
+        return all_comments
     
     def calculate_spread_coefficient(self, videos):
         if not videos:
@@ -321,20 +325,6 @@ if st.session_state.logged_in:
                     
                     st.info(f"**총 조회수**: {result['total_views']:,}회 | **평균 조회수**: {result['avg_views']:,.1f}회 | **평균 가중 조회수**: {result['avg_weighted_views']:,.1f}회")
                     
-                    # 새로운 지표: 평균 가중 조회수 / 평균 조회수 비율
-                    if result['avg_views'] > 0:
-                        engagement_ratio = result['avg_weighted_views'] / result['avg_views']
-                        
-                        if engagement_ratio < 1.1:
-                            st.metric("참여도 영향력 (가중/일반 조회수)", f"{engagement_ratio:.2f}", help="매우 낮은 참여도를 보입니다.")
-                            st.info("해석: 참여도 영향력이 낮음")
-                        elif 1.1 <= engagement_ratio < 1.3:
-                            st.metric("참여도 영향력 (가중/일반 조회수)", f"{engagement_ratio:.2f}", help="보통 수준의 참여도를 보입니다.")
-                            st.success("해석: 참여도 영향력이 보통")
-                        else:
-                            st.metric("참여도 영향력 (가중/일반 조회수)", f"{engagement_ratio:.2f}", help="높은 참여도를 보입니다.")
-                            st.success("해석: 참여도 영향력이 높음")
-
                     sc = result['spread_coefficient']
                     sc_guide = ""
                     if sc < 2.0: sc_guide = "미미한 영향"
@@ -380,10 +370,11 @@ if st.session_state.logged_in:
                     
                     with wordcloud_tab2:
                         st.subheader("🗣️ 영상 댓글 워드 클라우드")
+                        st.info("워드 클라우드는 조회수 상위 10개 영상의 최신 댓글들을 기반으로 생성되었습니다.")
                         top_video_ids = [v['id'] for v in result['top_videos']]
-                        all_comments = youtube_analyzer.get_video_comments(top_video_ids)
-                        if all_comments:
-                            create_wordcloud(all_comments, font_path)
+                        all_comments_text = youtube_analyzer.get_video_comments(top_video_ids, max_results_per_video=100) # 댓글 100개씩 가져옴
+                        if all_comments_text:
+                            create_wordcloud(all_comments_text, font_path)
                         else:
                             st.info("워드 클라우드를 생성할 댓글이 없습니다.")
 
