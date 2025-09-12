@@ -323,19 +323,6 @@ if st.session_state.logged_in:
                             """, unsafe_allow_html=True)
                     
                     st.info(f"**총 조회수**: {result['total_videos']:,}회 | **평균 조회수**: {result['avg_views']:,.1f}회 | **평균 가중 조회수**: {result['avg_weighted_views']:,.1f}회")
-                    
-                    if result['avg_views'] > 0:
-                        engagement_ratio = result['avg_weighted_views'] / result['avg_views']
-                        
-                        if engagement_ratio < 1.1:
-                            st.metric("참여도 영향력 (가중/일반 조회수)", f"{engagement_ratio:.2f}")
-                            st.info("해석: 참여도 영향력이 낮음")
-                        elif 1.1 <= engagement_ratio < 1.3:
-                            st.metric("참여도 영향력 (가중/일반 조회수)", f"{engagement_ratio:.2f}")
-                            st.success("해석: 참여도 영향력이 보통")
-                        else:
-                            st.metric("참여도 영향력 (가중/일반 조회수)", f"{engagement_ratio:.2f}")
-                            st.success("해석: 참여도 영향력이 높음")
 
                     sc = result['spread_coefficient']
                     sc_guide = ""
@@ -382,14 +369,16 @@ if st.session_state.logged_in:
                         st.subheader("🗣️ 영상 댓글 워드 클라우드")
                         st.info("워드 클라우드는 좋아요 순으로 정렬된 댓글들을 기반으로 생성되었습니다.")
                         if all_comments_list:
+                            # 텍스트만 추출하여 공백으로 연결
                             all_comments_text_for_wc = " ".join([comment['text'] for comment in all_comments_list])
                             if all_comments_text_for_wc:
-                                create_wordcloud(all_comments_text_for_wc, font_path)
+                                # 워드 클라우드 생성 시에만 줄바꿈 태그를 제거
+                                cleaned_text = re.sub(r'<br\s*/>', ' ', all_comments_text_for_wc)
+                                create_wordcloud(cleaned_text, font_path)
                             else:
                                 st.info("워드 클라우드를 생성할 댓글이 없습니다.")
                         else:
                             st.info("워드 클라우드를 생성할 댓글이 없습니다.")
-
 
             with tab2:
                 st.header("📈 네이버 BTI 분석 결과")
@@ -462,7 +451,6 @@ if st.session_state.logged_in:
             st.warning("API 키를 올바르게 설정했는지 확인해 주세요.")
 
 else:
-    st.header("🔑 통합 키워드 분석기 로그인")
     password_input = st.text_input("비밀번호를 입력하세요:", type="password")
     if password_input:
         if password_input == PASSWORD:
