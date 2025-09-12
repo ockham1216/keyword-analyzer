@@ -112,6 +112,29 @@ class YouTubeSpreadAnalyzer:
     
     def get_video_comments(self, video_ids, max_results_per_video=30):
         """가장 조회수가 높은 영상들의 댓글을 가져옴 (쿼터 최소화)"""
+        all_comments_text = ""
+        for video_id in video_ids:
+            try:
+                comment_response = self.youtube.commentThreads().list(
+                    part="snippet",
+                    videoId=video_id,
+                    maxResults=max_results_per_video,
+                    order="relevance"
+                ).execute()
+                
+                for item in comment_response['items']:
+                    comment_info = item['snippet']['topLevelComment']['snippet']
+                    # 줄바꿈 태그 제거 후 텍스트 추가
+                    comment_text = re.sub(r'<br\s*/>', ' ', comment_info['textDisplay'])
+                    all_comments_text += comment_text + " "
+            except Exception as e:
+                # 댓글이 비활성화된 영상이 있을 수 있음
+                continue
+                
+        return all_comments_text
+
+    def get_video_comments_with_likes(self, video_ids, max_results_per_video=30):
+        """댓글을 가져와 좋아요 순으로 정렬하여 리스트 반환"""
         all_comments = []
         for video_id in video_ids:
             try:
@@ -124,14 +147,13 @@ class YouTubeSpreadAnalyzer:
                 
                 for item in comment_response['items']:
                     comment_info = item['snippet']['topLevelComment']['snippet']
-                    comment_text = re.sub(r'<br\s*/>', ' ', comment_info['textDisplay']) # <br> 태그 제거
+                    comment_text = re.sub(r'<br\s*/>', ' ', comment_info['textDisplay'])
                     
                     all_comments.append({
                         'text': comment_text,
                         'likeCount': comment_info['likeCount']
                     })
             except Exception as e:
-                # 댓글이 비활성화된 영상이 있을 수 있음
                 continue
                 
         return all_comments
@@ -323,8 +345,21 @@ if st.session_state.logged_in:
                             **참여도**: (좋아요 + 댓글) / 조회수
                             """, unsafe_allow_html=True)
                     
-                    st.info(f"**총 조회수**: {result['total_views']:,}회 | **평균 조회수**: {result['avg_views']:,.1f}회 | **평균 가중 조회수**: {result['avg_weighted_views']:,.1f}회")
+                    st.info(f"**총 조회수**: {result['total_videos']:,}회 | **평균 조회수**: {result['avg_views']:,.1f}회 | **평균 가중 조회수**: {result['avg_weighted_views']:,.1f}회")
                     
+                    if result['avg_views'] > 0:
+                        engagement_ratio = result['avg_weighted_views'] / result['avg_views']
+                        
+                        if engagement_ratio < 1.1:
+                            st.metric("참여도 영향력 (가중/일반 조회수)", f"{engagement_ratio:.2f}")
+                            st.info("해석: 참여도 영향력이 낮음")
+                        elif 1.1 <= engagement_ratio < 1.3:
+                            st.metric("참여도 영향력 (가중/일반 조회수)", f"{engagement_ratio:.2f}")
+                            st.success("해석: 참여도 영향력이 보통")
+                        else:
+                            st.metric("참여도 영향력 (가중/일반 조회수)", f"{engagement_ratio:.2f}")
+                            st.success("해석: 참여도 영향력이 높음")
+
                     sc = result['spread_coefficient']
                     sc_guide = ""
                     if sc < 2.0: sc_guide = "미미한 영향"
@@ -334,29 +369,26 @@ if st.session_state.logged_in:
                     elif sc < 10.0: sc_guide = "위기 수준"
                     else: sc_guide = "최고 위기 수준"
                     st.markdown(f"**해석**: {sc_guide}")
-
+                    
                     # 상위 10개 동영상
                     st.subheader("상위 10개 동영상")
                     top_videos_df = pd.DataFrame(result['top_videos'])
                     top_videos_df['publishedAt'] = pd.to_datetime(top_videos_df['publishedAt']).dt.strftime('%Y-%m-%d')
                     top_videos_df = top_videos_df[['channelTitle', 'title', 'viewCount', 'likeCount', 'commentCount', 'publishedAt']]
                     st.dataframe(top_videos_df, use_container_width=True)
-                    
-                    st.subheader("주요 시각화")
-                    fig, ax = plt.subplots(figsize=(16, 6))
-                    metrics = ['평균 조회수', '평균 가중 조회수']
-                    values = [
-                        result['avg_views'],
-                        result['avg_weighted_views']
-                    ]
-                    colors = ['green', 'orange']
-                    ax.bar(metrics, values, color=colors)
-                    ax.set_title('확산 지표 비교')
-                    ax.set_ylabel('값')
-                    ax.ticklabel_format(style='plain', axis='y')
-                    plt.tight_layout()
-                    st.pyplot(fig)
-                    
+
+                    st.subheader("👍 민심 파악: 좋아요 순 최상위 댓글")
+                    top_video_ids = [v['id'] for v in result['top_videos']]
+                    all_comments_list = youtube_analyzer.get_video_comments_with_likes(top_video_ids)
+
+                    if all_comments_list:
+                        top_comments_sorted = sorted(all_comments_list, key=lambda x: x['likeCount'], reverse=True)[:30]
+                        for i, comment_data in enumerate(top_comments_sorted):
+                            st.markdown(f"**{i+1}.** {comment_data['text']}")
+                            st.caption(f"좋아요 수: {comment_data['likeCount']:,}개")
+                    else:
+                        st.info("댓글을 불러올 수 없습니다.")
+
                     # 워드클라우드 탭
                     wordcloud_tab1, wordcloud_tab2 = st.tabs(["💬 제목 워드 클라우드", "🗣️ 댓글 워드 클라우드"])
                     
@@ -372,7 +404,7 @@ if st.session_state.logged_in:
                         st.subheader("🗣️ 영상 댓글 워드 클라우드")
                         st.info("워드 클라우드는 조회수 상위 10개 영상의 최신 댓글들을 기반으로 생성되었습니다.")
                         top_video_ids = [v['id'] for v in result['top_videos']]
-                        all_comments_text = youtube_analyzer.get_video_comments(top_video_ids, max_results_per_video=100) # 댓글 100개씩 가져옴
+                        all_comments_text = youtube_analyzer.get_video_comments(top_video_ids, max_results_per_video=100)
                         if all_comments_text:
                             create_wordcloud(all_comments_text, font_path)
                         else:
@@ -415,7 +447,7 @@ if st.session_state.logged_in:
                                 *BTI는 0-100 사이의 상대적 수치입니다.*
                                 """, unsafe_allow_html=True)
 
-                        st.markdown("최근 BTI 추이:")
+                        st.markdown(f"최근 BTI 추이:")
                         st.dataframe(main_df[['date', 'bti']].tail(days_back).set_index('date'), use_container_width=True)
 
                         st.subheader("BTI 지수 추이 그래프")
